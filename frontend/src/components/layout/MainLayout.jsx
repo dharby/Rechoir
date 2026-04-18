@@ -1,16 +1,26 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import { Bell, Sun, Moon } from 'lucide-react';
+import { Bell, Sun, Moon, Menu, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../services/supabase';
 import useAuthStore from '../../stores/authStore';
 import useThemeStore, { getThemeColors } from '../../stores/themeStore';
+import { useState, useEffect } from 'react';
 
 const MainLayout = () => {
   const { profile } = useAuthStore();
   const { isDark, toggleTheme } = useThemeStore();
   const colors = getThemeColors(isDark);
   const isMember = profile?.role === 'MEMBER';
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const { data: unreadData } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -34,14 +44,65 @@ const MainLayout = () => {
       display: 'flex', 
       minHeight: '100vh', 
       backgroundColor: colors.bg,
-      transition: 'background-color 0.3s ease'
+      transition: 'background-color 0.3s ease',
+      flexDirection: 'column',
     }}>
-      <Sidebar />
+      {isMobile && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '60px',
+            backgroundColor: isDark ? '#0f172a' : '#ffffff',
+            borderBottom: `1px solid ${colors.border}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 16px',
+            zIndex: 200,
+          }}
+        >
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: colors.text,
+              cursor: 'pointer',
+              padding: '8px',
+            }}
+          >
+            {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+          <span style={{ fontSize: '18px', fontWeight: '700', color: colors.text }}>
+            RECHOIR
+          </span>
+          <div style={{ width: '40px' }} />
+        </div>
+      )}
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 250,
+          }}
+        />
+      )}
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isMobile={isMobile} />
       <main
+        className="main-content"
         style={{
           flex: 1,
-          marginLeft: '260px',
-          padding: '32px',
+          marginLeft: isMobile ? 0 : '260px',
+          padding: isMobile ? '80px 16px 32px' : '32px',
           minHeight: '100vh',
           transition: 'background-color 0.3s ease',
         }}

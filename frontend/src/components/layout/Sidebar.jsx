@@ -20,7 +20,7 @@ import {
 import { useState, useEffect } from 'react';
 import useThemeStore, { getThemeColors } from '../../stores/themeStore';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose, isMobile }) => {
   const [collapsed, setCollapsed] = useState(false);
   const { isDark } = useThemeStore();
   const colors = getThemeColors(isDark);
@@ -59,23 +59,29 @@ const Sidebar = () => {
     localStorage.removeItem('rechoir_user');
     localStorage.removeItem('rechoir_token');
     localStorage.removeItem('rechoir_team');
+    if (onClose) onClose();
     navigate('/login');
+  };
+
+  const handleNavClick = () => {
+    if (onClose) onClose();
   };
 
   return (
     <aside
+      className={isMobile ? 'mobile-sidebar' : ''}
       style={{
-        width: collapsed ? '80px' : '260px',
+        width: collapsed ? '80px' : isMobile ? '260px' : '260px',
         backgroundColor: isDark ? '#0f172a' : '#ffffff',
         borderRight: `1px solid ${colors.border}`,
-        height: '100vh',
-        position: 'fixed',
-        left: 0,
-        top: 0,
-        transition: 'width 0.3s ease',
+        height: isMobile ? '100vh' : '100vh',
+        position: isMobile ? 'fixed' : 'fixed',
+        left: isMobile ? (isOpen ? 0 : '-260px') : 0,
+        top: isMobile ? 0 : 0,
+        transition: isMobile ? 'left 0.3s ease' : 'width 0.3s ease',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 100,
+        zIndex: isMobile ? 300 : 100,
         boxShadow: isDark ? 'none' : '4px 0 20px rgba(0,0,0,0.05)',
       }}
     >
@@ -126,6 +132,7 @@ const Sidebar = () => {
             <li key={item.path}>
               <NavLink
                 to={item.path}
+                onClick={handleNavClick}
                 style={({ isActive }) => ({
                   display: 'flex',
                   alignItems: 'center',

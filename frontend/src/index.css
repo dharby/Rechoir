@@ -15,10 +15,45 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+  font-size: 16px;
+}
+
 body {
   min-height: 100vh;
   background-color: #0f172a;
   color: #f8fafc;
+  overflow-x: hidden;
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+  
+  body {
+    min-height: 100dvh;
+  }
+  
+  input, button, select, textarea {
+    font-size: 16px !important;
+  }
+  
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  html {
+    font-size: 13px;
+  }
 }
 
 #root {
@@ -71,4 +106,79 @@ input, textarea, select {
 
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+/* Mobile Sidebar */
+@media (max-width: 768px) {
+  .main-content {
+    margin-left: 0 !important;
+    padding: 20px 16px !important;
+    padding-top: 80px !important;
+  }
+  
+  .mobile-sidebar {
+    box-shadow: 4px 0 30px rgba(0, 0, 0, 0.5) !important;
+  }
+}
+
+/* Responsive utilities */
+@media (max-width: 640px) {
+  .page-container {
+    padding: 0;
+  }
+  
+  .card {
+    padding: 16px;
+    border-radius: 12px;
+  }
+  
+  .form-group {
+    margin-bottom: 16px;
+  }
+  
+  .btn {
+    padding: 12px 20px;
+    font-size: 14px;
+  }
+  
+  .input {
+    padding: 12px;
+    font-size: 16px;
+  }
+  
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  table {
+    font-size: 13px;
+  }
+  
+  th, td {
+    padding: 10px 8px;
+  }
+}
+
+/* Touch-friendly adjustments */
+@media (hover: none) and (pointer: coarse) {
+  button, 
+  a[href],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+}
+
+/* Safe area for notched phones */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
 }
