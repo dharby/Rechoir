@@ -6,6 +6,12 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const FUNCTION_URL = (name) => `${SUPABASE_URL}/functions/v1/${name}`;
 
 async function callFunction(name, body) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Missing Supabase environment variables');
+  }
+  
+  console.log(`Calling function ${name}:`, body);
+  
   const response = await fetch(FUNCTION_URL(name), {
     method: 'POST',
     headers: {
@@ -16,6 +22,8 @@ async function callFunction(name, body) {
   });
   
   const data = await response.json();
+  console.log(`Function ${name} response:`, data);
+  
   if (!response.ok) {
     throw new Error(data.error || 'An error occurred');
   }
