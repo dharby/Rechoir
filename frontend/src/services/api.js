@@ -20,70 +20,8 @@ async function callFunction(name, body) {
   return data;
 }
 
-// Direct Supabase Auth - no functions needed
-export const superAdminAuth = {
-  register: async (data) => {
-    const { email, password, name } = data;
-    
-    // Sign up via Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password
-    });
-    
-    if (authError) {
-      return { success: false, error: authError.message };
-    }
-    
-    if (!authData.user) {
-      return { success: false, error: 'Registration failed' };
-    }
-    
-    // Add to super_admins table
-    const { error: insertError } = await supabase
-      .from('super_admins')
-      .insert({
-        id: authData.user.id,
-        email,
-        name
-      });
-    
-    if (insertError) {
-      return { success: false, error: insertError.message };
-    }
-    
-    return { 
-      success: true, 
-      user: { id: authData.user.id, email, name, role: 'SUPER_ADMIN' }
-    };
-  },
-  
-  login: async (data) => {
-    const { email, password } = data;
-    
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-    
-    if (authError) {
-      return { success: false, error: authError.message };
-    }
-    
-    // Get user profile
-    const { data: profile } = await supabase
-      .from('super_admins')
-      .select('*')
-      .eq('id', authData.user.id)
-      .single();
-    
-    return { 
-      success: true, 
-      user: profile || { id: authData.user.id, email: authData.user.email, role: 'SUPER_ADMIN' },
-      token: authData.session.access_token
-    };
-  }
-};
+// Unified Auth - Team Lead is the admin for their choir/team
+export const superAdminAuth = teamLeadAuth;
 
 export const teamLeadAuth = {
   login: async (data) => {
