@@ -1,26 +1,6 @@
 import { supabase } from './supabase';
 
-const FUNCTION_URL = (name) => `https://iuppnzkqkosrzmeauysc.supabase.co/functions/v1/${name}`;
-
-async function callFunction(name, body) {
-  const response = await fetch(FUNCTION_URL(name), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1cHBuemtxa29zcnptZWF1eXNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwOTQwNDUsImV4cCI6MjA5MTY3MDA0NX0.zkX9UmW8-ChlPwz8O1uQcQEXeRLG_VAsWeKgvWK2Igk'
-    },
-    body: JSON.stringify(body)
-  });
-  
-  const data = await response.json();
-  
-  if (!response.ok) {
-    throw new Error(data.error || 'An error occurred');
-  }
-  return data;
-}
-
-// Unified Auth - Team Lead is the admin for their choir/team
+// Unified Auth - Team Lead is the admin for their choir
 export const superAdminAuth = teamLeadAuth;
 
 export const teamLeadAuth = {
@@ -36,7 +16,6 @@ export const teamLeadAuth = {
       return { success: false, error: authError.message };
     }
     
-    // Get team lead profile
     const { data: profile } = await supabase
       .from('team_leads')
       .select('*, teams(*)')
@@ -54,7 +33,6 @@ export const teamLeadAuth = {
   register: async (data) => {
     const { email, password, name, phone, teamCode } = data;
     
-    // First create auth user
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password
@@ -68,15 +46,24 @@ export const teamLeadAuth = {
       return { success: false, error: 'Registration failed' };
     }
     
-    // Get team
-    const { data: team } = await supabase
+    // Check if team exists, if not create it
+    let { data: team } = await supabase
       .from('teams')
       .select('*')
       .eq('code', teamCode)
       .single();
     
     if (!team) {
-      return { success: false, error: 'Invalid team code' };
+      const { data: newTeam, error: teamError } = await supabase
+        .from('teams')
+        .insert({ name: `${name}'s Choir`, code: teamCode })
+        .select()
+        .single();
+      
+      if (teamError) {
+        return { success: false, error: teamError.message };
+      }
+      team = newTeam;
     }
     
     // Create team lead profile
@@ -86,6 +73,7 @@ export const teamLeadAuth = {
         id: authData.user.id,
         name,
         phone,
+        email,
         team_id: team.id
       });
     
@@ -93,7 +81,7 @@ export const teamLeadAuth = {
       return { success: false, error: profileError.message };
     }
     
-    return { success: true, user: { id: authData.user.id, email, name, team_id: team.id, role: 'TEAM_LEAD' }, team };
+    return { success: true, user: { id: authData.user.id, email, name, role: 'TEAM_LEAD' }, team };
   }
 };
 
@@ -101,7 +89,6 @@ export const memberAuth = {
   login: async (data) => {
     const { accessCode, email, password } = data;
     
-    // Try by email/password first (Supabase Auth)
     if (email && password) {
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
@@ -109,7 +96,6 @@ export const memberAuth = {
       });
       
       if (!authError && authData.user) {
-        // Get member profile
         const { data: member } = await supabase
           .from('members')
           .select('*, teams(*)')
@@ -125,7 +111,6 @@ export const memberAuth = {
       }
     }
     
-    // Try by access code
     if (accessCode) {
       const { data: member, error: memberError } = await supabase
         .from('members')
@@ -145,15 +130,10 @@ export const memberAuth = {
     }
     
     return { success: false, error: 'Invalid credentials' };
-  },
-  
-  register: async (data) => {
-    // Members are typically added by team leads, not self-register
-    return { success: false, error: 'Please contact your team lead to get an access code' };
   }
 };
 
-// Teams - direct Supabase
+// Teams API
 export const teamsApi = {
   list: async () => {
     const { data, error } = await supabase.from('teams').select('*');
@@ -172,7 +152,7 @@ export const teamsApi = {
   }
 };
 
-// Members - direct Supabase
+// Members API
 export const membersApi = {
   list: async (teamId, search) => {
     let query = supabase.from('members').select('*, teams(*), specializations(*)').eq('team_id', teamId);
@@ -180,18 +160,33 @@ export const membersApi = {
     const { data, error } = await query;
     if (error) throw error;
     return data;
+  },
+  get: async (memberId) => {
+    const { data, error } = await supabase.from('members').select('*, teams(*)').eq('id', memberId).single();
+    if (error) throw error;
+    return data;
+  },
+  create: async (data) => {
+    const { data: result, error } = await supabase.from('members').insert(data).select().single();
+    if (error) throw error;
+    return result;
+  },
+  update: async (data) => {
+    const { data: result, error } = await supabase.from('members').update(data).eq('id', data.id).select().single();
+    if (error) throw error;
+    return result;
   }
 };
 
-// Placeholder for other APIs - they'll need functions or direct DB access
-export const prayerChainsApi = { list: () => [], create: () => {} };
-export const paymentsApi = { list: () => [], create: () => {} };
-export const rehearsalsApi = { list: () => [], create: () => {} };
-export const checklistsApi = { list: () => [], create: () => {} };
-export const uniformsApi = { list: () => [], create: () => {} };
-export const songsApi = { list: () => [], create: () => {} };
-export const chatApi = { listRooms: () => [], sendMessage: () => {} };
-export const notificationsApi = { list: () => [], create: () => {} };
+// Placeholder APIs
+export const prayerChainsApi = { list: () => [], get: () => null, create: () => null, update: () => null, delete: () => null };
+export const paymentsApi = { list: () => [], get: () => null, create: () => null, update: () => null, delete: () => null };
+export const rehearsalsApi = { list: () => [], get: () => null, create: () => null, update: () => null, delete: () => null, markAttendance: () => null };
+export const checklistsApi = { list: () => [], get: () => null, create: () => null, toggleItem: () => null, delete: () => null };
+export const uniformsApi = { list: () => [], get: () => null, create: () => null, update: () => null, delete: () => null };
+export const songsApi = { list: () => [], get: () => null, create: () => null, update: () => null, delete: () => null };
+export const chatApi = { listRooms: () => [], getMessages: () => [], sendMessage: () => null };
+export const notificationsApi = { list: () => [], create: () => null };
 
 export const subscribeToMessages = (roomId, callback) => {
   return supabase
