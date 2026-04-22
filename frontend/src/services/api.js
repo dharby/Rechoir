@@ -22,6 +22,42 @@ async function callFunction(name, body) {
 
 // Direct Supabase Auth - no functions needed
 export const superAdminAuth = {
+  register: async (data) => {
+    const { email, password, name } = data;
+    
+    // Sign up via Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password
+    });
+    
+    if (authError) {
+      return { success: false, error: authError.message };
+    }
+    
+    if (!authData.user) {
+      return { success: false, error: 'Registration failed' };
+    }
+    
+    // Add to super_admins table
+    const { error: insertError } = await supabase
+      .from('super_admins')
+      .insert({
+        id: authData.user.id,
+        email,
+        name
+      });
+    
+    if (insertError) {
+      return { success: false, error: insertError.message };
+    }
+    
+    return { 
+      success: true, 
+      user: { id: authData.user.id, email, name, role: 'SUPER_ADMIN' }
+    };
+  },
+  
   login: async (data) => {
     const { email, password } = data;
     
@@ -90,6 +126,10 @@ export const teamLeadAuth = {
       return { success: false, error: authError.message };
     }
     
+    if (!authData.user) {
+      return { success: false, error: 'Registration failed' };
+    }
+    
     // Get team
     const { data: team } = await supabase
       .from('teams')
@@ -102,61 +142,76 @@ export const teamLeadAuth = {
     }
     
     // Create team lead profile
-    const { data: profile, error: profileError } = await supabase
+    const { error: profileError } = await supabase
       .from('team_leads')
       .insert({
         id: authData.user.id,
         name,
         phone,
         team_id: team.id
-      })
-      .select()
-      .single();
+      });
     
     if (profileError) {
       return { success: false, error: profileError.message };
     }
     
-    return { success: true, user: { ...profile, role: 'TEAM_LEAD' }, team };
+    return { success: true, user: { id: authData.user.id, email, name, team_id: team.id, role: 'TEAM_LEAD' }, team };
   }
 };
 
 export const memberAuth = {
   login: async (data) => {
-    const { code, password } = data;
+    const { accessCode, email, password } = data;
     
-    // Find member by code
-    const { data: member, error: memberError } = await supabase
-      .from('members')
-      .select('*, teams(*), specializations(*)')
-      .eq('access_code', code)
-      .single();
-    
-    if (memberError || !member) {
-      return { success: false, error: 'Invalid access code' };
+    // Try by email/password first (Supabase Auth)
+    if (email && password) {
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      
+      if (!authError && authData.user) {
+        // Get member profile
+        const { data: member } = await supabase
+          .from('members')
+          .select('*, teams(*)')
+          .eq('id', authData.user.id)
+          .single();
+        
+        return { 
+          success: true, 
+          user: { ...member, role: 'MEMBER' },
+          token: authData.session.access_token,
+          team: member?.teams
+        };
+      }
     }
     
-    // Check if password is set, if not this is first login
-    if (!member.password_hash) {
-      return { success: false, error: 'PASSWORD_NOT_SET', needsPassword: true, member };
+    // Try by access code
+    if (accessCode) {
+      const { data: member, error: memberError } = await supabase
+        .from('members')
+        .select('*, teams(*)')
+        .eq('access_code', accessCode)
+        .single();
+      
+      if (memberError || !member) {
+        return { success: false, error: 'Invalid access code' };
+      }
+      
+      return { 
+        success: true, 
+        user: { ...member, role: 'MEMBER' },
+        team: member.teams
+      };
     }
     
-    // For now, accept the code as password for simple auth
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: member.email,
-      password: password || code
-    });
-    
-    if (authError) {
-      return { success: false, error: authError.message };
-    }
-    
-    return { 
-      success: true, 
-      user: { ...member, role: 'MEMBER' },
-      token: authData.session.access_token,
-      team: member.teams
-    };
+    return { success: false, error: 'Invalid credentials' };
+  },
+  
+  register: async (data) => {
+    // Members are typically added by team leads, not self-register
+    return { success: false, error: 'Please contact your team lead to get an access code' };
   }
 };
 

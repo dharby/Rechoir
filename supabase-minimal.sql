@@ -45,20 +45,25 @@ CREATE TABLE IF NOT EXISTS public.members (
 -- Insert test team
 INSERT INTO public.teams (name, code) VALUES ('Test Choir', 'CHOIR001');
 
--- Create a test team lead (replace with your email)
--- You'll need to create this manually in the dashboard
-INSERT INTO public.team_leads (id, email, name, team_id)
-SELECT 
-  uuid_generate_v4(),
-  'teamlead@example.com',
-  'Test Team Lead',
-  id
-FROM public.teams WHERE code = 'CHOIR001'
-ON CONFLICT (email) DO NOTHING;
+-- Enable RLS
+ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.super_admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_leads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.members ENABLE ROW LEVEL SECURITY;
 
--- CREATE A TEST ACCOUNT YOU CAN LOGIN WITH:
--- 1. Go to Supabase Dashboard → Authentication → Users
--- 2. Click "Add user" to create a new auth user
--- 3. Then add their ID to super_admins or team_leads table
+-- Teams - everyone can read, authenticated can insert/update
+CREATE POLICY "teams_read" ON public.teams FOR SELECT USING (true);
+CREATE POLICY "teams_insert" ON public.teams FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "teams_update" ON public.teams FOR UPDATE USING (auth.role() = 'authenticated');
 
-SELECT 'Minimal tables created! Now add a user in Supabase Authentication, then add them to team_leads table.' as message;
+-- Team leads can manage their own profile
+CREATE POLICY "team_leads_read" ON public.team_leads FOR SELECT USING (true);
+CREATE POLICY "team_leads_insert" ON public.team_leads FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "team_leads_update" ON public.team_leads FOR UPDATE USING (auth.uid() = id);
+
+-- Members can manage their own profile
+CREATE POLICY "members_read" ON public.members FOR SELECT USING (true);
+CREATE POLICY "members_insert" ON public.members FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "members_update" ON public.members FOR UPDATE USING (auth.uid() = id);
+
+SELECT 'Minimal tables created with RLS!' as message;
