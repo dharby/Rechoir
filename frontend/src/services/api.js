@@ -1,28 +1,18 @@
 import { supabase } from './supabase';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://iuppnzkqkosrzmeauysc.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1cHBuemtxa29zcnptZWF1eXNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwOTQwNDUsImV4cCI6MjA5MTY3MDA0NX0.zkX9UmW8-ChlPwz8O1uQcQEXeRLG_VAsWeKgvWK2Igk';
-
-const FUNCTION_URL = (name) => `${SUPABASE_URL}/functions/v1/${name}`;
+const FUNCTION_URL = (name) => `https://iuppnzkqkosrzmeauysc.supabase.co/functions/v1/${name}`;
 
 async function callFunction(name, body) {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error('Missing Supabase environment variables');
-  }
-  
-  console.log(`Calling function ${name}:`, body);
-  
   const response = await fetch(FUNCTION_URL(name), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1cHBuemtxa29zcnptZWF1eXNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwOTQwNDUsImV4cCI6MjA5MTY3MDA0NX0.zkX9UmW8-ChlPwz8O1uQcQEXeRLG_VAsWeKgvWK2Igk'
     },
     body: JSON.stringify(body)
   });
   
   const data = await response.json();
-  console.log(`Function ${name} response:`, data);
   
   if (!response.ok) {
     throw new Error(data.error || 'An error occurred');
@@ -30,132 +20,186 @@ async function callFunction(name, body) {
   return data;
 }
 
-// Auth - Super Admin
+// Direct Supabase Auth - no functions needed
 export const superAdminAuth = {
-  register: (data) => callFunction('auth-super-admin', { action: 'register', ...data }),
-  login: (data) => callFunction('auth-super-admin', { action: 'login', ...data })
+  login: async (data) => {
+    const { email, password } = data;
+    
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+    
+    if (authError) {
+      return { success: false, error: authError.message };
+    }
+    
+    // Get user profile
+    const { data: profile } = await supabase
+      .from('super_admins')
+      .select('*')
+      .eq('id', authData.user.id)
+      .single();
+    
+    return { 
+      success: true, 
+      user: profile || { id: authData.user.id, email: authData.user.email, role: 'SUPER_ADMIN' },
+      token: authData.session.access_token
+    };
+  }
 };
 
-// Auth - Team Lead
 export const teamLeadAuth = {
-  register: (data) => callFunction('auth-team-lead', { action: 'register', ...data }),
-  login: (data) => callFunction('auth-team-lead', { action: 'login', ...data }),
-  setPassword: (data) => callFunction('auth-team-lead', { action: 'set-password', ...data }),
-  changePassword: (data) => callFunction('auth-team-lead', { action: 'change-password', ...data }),
-  getAccessCode: (teamId) => callFunction('auth-team-lead', { action: 'get-access-code', teamId })
+  login: async (data) => {
+    const { email, password } = data;
+    
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+    
+    if (authError) {
+      return { success: false, error: authError.message };
+    }
+    
+    // Get team lead profile
+    const { data: profile } = await supabase
+      .from('team_leads')
+      .select('*, teams(*)')
+      .eq('id', authData.user.id)
+      .single();
+    
+    return { 
+      success: true, 
+      user: { ...profile, role: 'TEAM_LEAD' },
+      token: authData.session.access_token,
+      team: profile?.teams
+    };
+  },
+  
+  register: async (data) => {
+    const { email, password, name, phone, teamCode } = data;
+    
+    // First create auth user
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password
+    });
+    
+    if (authError) {
+      return { success: false, error: authError.message };
+    }
+    
+    // Get team
+    const { data: team } = await supabase
+      .from('teams')
+      .select('*')
+      .eq('code', teamCode)
+      .single();
+    
+    if (!team) {
+      return { success: false, error: 'Invalid team code' };
+    }
+    
+    // Create team lead profile
+    const { data: profile, error: profileError } = await supabase
+      .from('team_leads')
+      .insert({
+        id: authData.user.id,
+        name,
+        phone,
+        team_id: team.id
+      })
+      .select()
+      .single();
+    
+    if (profileError) {
+      return { success: false, error: profileError.message };
+    }
+    
+    return { success: true, user: { ...profile, role: 'TEAM_LEAD' }, team };
+  }
 };
 
-// Auth - Member
 export const memberAuth = {
-  login: (data) => callFunction('auth-member', { action: 'login', ...data }),
-  setPassword: (data) => callFunction('auth-member', { action: 'set-password', ...data })
+  login: async (data) => {
+    const { code, password } = data;
+    
+    // Find member by code
+    const { data: member, error: memberError } = await supabase
+      .from('members')
+      .select('*, teams(*), specializations(*)')
+      .eq('access_code', code)
+      .single();
+    
+    if (memberError || !member) {
+      return { success: false, error: 'Invalid access code' };
+    }
+    
+    // Check if password is set, if not this is first login
+    if (!member.password_hash) {
+      return { success: false, error: 'PASSWORD_NOT_SET', needsPassword: true, member };
+    }
+    
+    // For now, accept the code as password for simple auth
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: member.email,
+      password: password || code
+    });
+    
+    if (authError) {
+      return { success: false, error: authError.message };
+    }
+    
+    return { 
+      success: true, 
+      user: { ...member, role: 'MEMBER' },
+      token: authData.session.access_token,
+      team: member.teams
+    };
+  }
 };
 
-// Teams
+// Teams - direct Supabase
 export const teamsApi = {
-  list: () => callFunction('teams', { action: 'list' }),
-  get: (teamId) => callFunction('teams', { action: 'get', teamId }),
-  create: (data) => callFunction('teams', { action: 'create', ...data }),
-  update: (data) => callFunction('teams', { action: 'update', ...data }),
-  delete: (teamId) => callFunction('teams', { action: 'delete', teamId })
+  list: async () => {
+    const { data, error } = await supabase.from('teams').select('*');
+    if (error) throw error;
+    return data;
+  },
+  get: async (teamId) => {
+    const { data, error } = await supabase.from('teams').select('*').eq('id', teamId).single();
+    if (error) throw error;
+    return data;
+  },
+  create: async (data) => {
+    const { data: result, error } = await supabase.from('teams').insert(data).select().single();
+    if (error) throw error;
+    return result;
+  }
 };
 
-// Members
+// Members - direct Supabase
 export const membersApi = {
-  list: (teamId, search, specialization) => callFunction('members', { action: 'list', teamId, search, specialization }),
-  get: (memberId) => callFunction('members', { action: 'get', memberId }),
-  create: (data) => callFunction('members', { action: 'create', ...data }),
-  bulkCreate: (data) => callFunction('members', { action: 'bulk-create', ...data }),
-  update: (data) => callFunction('members', { action: 'update', ...data }),
-  toggleAccess: (data) => callFunction('members', { action: 'toggle-access', ...data }),
-  delete: (memberId) => callFunction('members', { action: 'delete', memberId })
+  list: async (teamId, search) => {
+    let query = supabase.from('members').select('*, teams(*), specializations(*)').eq('team_id', teamId);
+    if (search) query = query.ilike('name', `%${search}%`);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data;
+  }
 };
 
-// Prayer Chains
-export const prayerChainsApi = {
-  list: (teamId) => callFunction('prayer-chains', { action: 'list', teamId }),
-  get: (chainId) => callFunction('prayer-chains', { action: 'get', chainId }),
-  create: (data) => callFunction('prayer-chains', { action: 'create', ...data }),
-  update: (data) => callFunction('prayer-chains', { action: 'update', ...data }),
-  delete: (chainId) => callFunction('prayer-chains', { action: 'delete', chainId }),
-  addAssignment: (data) => callFunction('prayer-chains', { action: 'add-assignment', ...data }),
-  updateAssignment: (data) => callFunction('prayer-chains', { action: 'update-assignment', ...data }),
-  complete: (chainId) => callFunction('prayer-chains', { action: 'complete', chainId })
-};
+// Placeholder for other APIs - they'll need functions or direct DB access
+export const prayerChainsApi = { list: () => [], create: () => {} };
+export const paymentsApi = { list: () => [], create: () => {} };
+export const rehearsalsApi = { list: () => [], create: () => {} };
+export const checklistsApi = { list: () => [], create: () => {} };
+export const uniformsApi = { list: () => [], create: () => {} };
+export const songsApi = { list: () => [], create: () => {} };
+export const chatApi = { listRooms: () => [], sendMessage: () => {} };
+export const notificationsApi = { list: () => [], create: () => {} };
 
-// Payments
-export const paymentsApi = {
-  list: (teamId) => callFunction('payments', { action: 'list', teamId }),
-  get: (paymentId) => callFunction('payments', { action: 'get', paymentId }),
-  create: (data) => callFunction('payments', { action: 'create', ...data }),
-  update: (data) => callFunction('payments', { action: 'update', ...data }),
-  delete: (paymentId) => callFunction('payments', { action: 'delete', paymentId }),
-  updateRecord: (data) => callFunction('payments', { action: 'update-record', ...data })
-};
-
-// Rehearsals
-export const rehearsalsApi = {
-  list: (teamId, startDate, endDate) => callFunction('rehearsals', { action: 'list', teamId, startDate, endDate }),
-  get: (rehearsalId) => callFunction('rehearsals', { action: 'get', rehearsalId }),
-  create: (data) => callFunction('rehearsals', { action: 'create', ...data }),
-  update: (data) => callFunction('rehearsals', { action: 'update', ...data }),
-  delete: (rehearsalId) => callFunction('rehearsals', { action: 'delete', rehearsalId }),
-  markAttendance: (data) => callFunction('rehearsals', { action: 'mark-attendance', ...data }),
-  getStats: (teamId, memberId) => callFunction('rehearsals', { action: 'get-stats', teamId, memberId })
-};
-
-// Checklists
-export const checklistsApi = {
-  list: (teamId, weekStartDate) => callFunction('checklists', { action: 'list', teamId, weekStartDate }),
-  get: (checklistId) => callFunction('checklists', { action: 'get', checklistId }),
-  create: (data) => callFunction('checklists', { action: 'create', ...data }),
-  toggleItem: (itemId) => callFunction('checklists', { action: 'toggle-item', itemId }),
-  delete: (checklistId) => callFunction('checklists', { action: 'delete', checklistId })
-};
-
-// Uniforms
-export const uniformsApi = {
-  list: (teamId) => callFunction('uniforms', { action: 'list', teamId }),
-  get: (eventId) => callFunction('uniforms', { action: 'get', eventId }),
-  create: (data) => callFunction('uniforms', { action: 'create', ...data }),
-  update: (data) => callFunction('uniforms', { action: 'update', ...data }),
-  delete: (eventId) => callFunction('uniforms', { action: 'delete', eventId }),
-  toggleReadiness: (data) => callFunction('uniforms', { action: 'toggle-readiness', ...data })
-};
-
-// Songs
-export const songsApi = {
-  list: (teamId, targetReadinessDate) => callFunction('songs', { action: 'list', teamId, targetReadinessDate }),
-  get: (songId) => callFunction('songs', { action: 'get', songId }),
-  create: (data) => callFunction('songs', { action: 'create', ...data }),
-  update: (data) => callFunction('songs', { action: 'update', ...data }),
-  delete: (songId) => callFunction('songs', { action: 'delete', songId }),
-  updateReadiness: (data) => callFunction('songs', { action: 'update-readiness', ...data }),
-  getMySongs: (memberId) => callFunction('songs', { action: 'get-my-songs', memberId })
-};
-
-// Chat
-export const chatApi = {
-  listRooms: (teamId) => callFunction('chat', { action: 'list-rooms', teamId }),
-  createRoom: (data) => callFunction('chat', { action: 'create-room', ...data }),
-  getMessages: (roomId, limit, before) => callFunction('chat', { action: 'get-messages', roomId, limit, before }),
-  sendMessage: (data) => callFunction('chat', { action: 'send-message', ...data }),
-  markRead: (roomId, userId) => callFunction('chat', { action: 'mark-read', roomId, userId }),
-  deleteMessage: (messageId) => callFunction('chat', { action: 'delete-message', messageId })
-};
-
-// Notifications
-export const notificationsApi = {
-  list: (userId, userType, limit) => callFunction('notifications', { action: 'list', userId, userType, limit }),
-  create: (data) => callFunction('notifications', { action: 'create', ...data }),
-  createBulk: (notifications) => callFunction('notifications', { action: 'create-bulk', notifications }),
-  markRead: (notificationId) => callFunction('notifications', { action: 'mark-read', notificationId }),
-  markAllRead: (userId, userType) => callFunction('notifications', { action: 'mark-all-read', userId, userType }),
-  delete: (notificationId) => callFunction('notifications', { action: 'delete', notificationId }),
-  broadcast: (teamId, title, body, senderId) => callFunction('notifications', { action: 'broadcast', teamId, title, body, senderId })
-};
-
-// Realtime subscription helper
 export const subscribeToMessages = (roomId, callback) => {
   return supabase
     .channel(`chat:${roomId}`)
